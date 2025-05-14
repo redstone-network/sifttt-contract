@@ -48,9 +48,7 @@ pub mod sifttt {
         // 借贷增加健康因子风险，所以减少健康因子值
         account.health_factor = account.health_factor.saturating_sub(10);
         msg!("Health factor after borrow: {}", account.health_factor);
-        
-        // 检查是否需要自动化保护
-        Self::check_automation(account)?;
+
         Ok(())
     }
 
@@ -72,23 +70,9 @@ pub mod sifttt {
         );
         
         // 自动还款到目标健康因子
-        let repay_amount = account.target_health_factor.saturating_sub(account.health_factor);
         account.health_factor = account.target_health_factor;
         
         msg!("Auto repay executed: health factor restored to {}", account.health_factor);
-        Ok(())
-    }
-
-    // 内部函数检查自动化条件
-    fn check_automation(account: &mut AccountState) -> Result<()> {
-        if account.automation_enabled && 
-           account.health_factor <= account.trigger_health_factor &&
-           account.trigger_health_factor > 0 {
-            // 自动还款逻辑
-            let repay_amount = account.target_health_factor.saturating_sub(account.health_factor);
-            account.health_factor = account.target_health_factor;
-            msg!("Automation triggered! Health factor restored to {}", account.health_factor);
-        }
         Ok(())
     }
 }
@@ -100,6 +84,18 @@ pub struct AccountState {
     pub trigger_health_factor: u64,
     pub target_health_factor: u64,
     pub automation_enabled: bool,
+}
+
+impl AccountState {
+    pub fn check_automation(&mut self) -> Result<()> {
+        if self.automation_enabled && 
+           self.health_factor <= self.trigger_health_factor &&
+           self.trigger_health_factor > 0 {
+            self.health_factor = self.target_health_factor;
+            msg!("Automation triggered! Health factor restored to {}", self.health_factor);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
