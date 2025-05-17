@@ -125,6 +125,73 @@ pub mod sifttt {
         
         Ok(())
     }
+
+    // 设置价格交易参数
+    pub fn set_price_trading(
+        ctx: Context<Operate>,
+        target_price: u64,
+        token_address: Pubkey,
+        token_amount: u64,
+    ) -> Result<()> {
+        let account = &mut ctx.accounts.account;
+        
+        // 验证参数
+        require!(target_price > 0, ErrorCode::InvalidPrice);
+        require!(token_amount > 0, ErrorCode::InvalidAmount);
+        
+        // 更新账户状态
+        account.target_price = target_price;
+        account.price_token_address = token_address;
+        account.price_token_amount = token_amount;
+        account.price_trading_enabled = true;
+        
+        msg!(
+            "Price trading set: target_price={}, token={}, amount={}",
+            target_price,
+            token_address,
+            token_amount
+        );
+        Ok(())
+    }
+
+    // 执行价格触发交易
+    pub fn execute_price_trade(
+        ctx: Context<Operate>,
+        current_price: u64,
+    ) -> Result<()> {
+        // 将account的借用限制在这个作用域内
+        {
+            let account = &ctx.accounts.account;
+            
+            // 验证价格交易是否启用
+            require!(account.price_trading_enabled, ErrorCode::PriceTradingNotEnabled);
+            
+            // 验证当前价格是否达到目标价格
+            require!(
+                current_price <= account.target_price,
+                ErrorCode::PriceNotMet
+            );
+            
+            msg!(
+                "Price condition met: current_price={}, target_price={}",
+                current_price,
+                account.target_price
+            );
+        } // account的借用在这里结束
+        
+        // 获取需要的值
+        let token_address = ctx.accounts.account.price_token_address;
+        let token_amount = ctx.accounts.account.price_token_amount;
+        
+        // 现在可以安全地移动ctx
+        mock_buy(
+            ctx,
+            token_address,
+            token_amount,
+        )?;
+        
+        Ok(())
+    }
 }
 
 #[account]
@@ -139,6 +206,11 @@ pub struct AccountState {
     pub token_address: Pubkey,    // token合约地址
     pub token_amount: u64,        // 定投数量
     pub dca_enabled: bool,        // 定投是否启用
+    // 价格交易相关字段
+    pub target_price: u64,           // 目标价格
+    pub price_token_address: Pubkey, // 目标token地址
+    pub price_token_amount: u64,     // 交易数量
+    pub price_trading_enabled: bool, // 价格交易是否启用
 }
 
 impl AccountState {
@@ -158,7 +230,7 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = user,
-        space = 8 + 8 + 8 + 8 + 1 + 8 + 32 + 8 + 1 // discriminator + health_factor + trigger + target + bool + dca_interval + token_address + token_amount + dca_enabled
+        space = 8 + 8 + 8 + 8 + 1 + 8 + 32 + 8 + 1 + 8 + 32 + 8 + 1 // discriminator + health_factor + trigger + target + bool + dca_interval + token_address + token_amount + dca_enabled + target_price + price_token_address + price_token_amount + price_trading_enabled
     )]
     pub account: Account<'info, AccountState>,
     #[account(mut)]
@@ -189,4 +261,10 @@ pub enum ErrorCode {
     DCANotEnabled,
     #[msg("Token address mismatch")]
     TokenMismatch,
+    #[msg("Invalid target price")]
+    InvalidPrice,
+    #[msg("Price trading is not enabled")]
+    PriceTradingNotEnabled,
+    #[msg("Current price is higher than target price")]
+    PriceNotMet,
 }
