@@ -75,6 +75,56 @@ pub mod sifttt {
         msg!("Auto repay executed: health factor restored to {}", account.health_factor);
         Ok(())
     }
+
+    // 设置定投参数
+    pub fn set_dca(
+        ctx: Context<Operate>,
+        interval: u64,
+        token_address: Pubkey,
+        token_amount: u64,
+    ) -> Result<()> {
+        let account = &mut ctx.accounts.account;
+        
+        // 验证参数
+        require!(interval > 0, ErrorCode::InvalidInterval);
+        require!(token_amount > 0, ErrorCode::InvalidAmount);
+        
+        // 更新账户状态
+        account.dca_interval = interval;
+        account.token_address = token_address;
+        account.token_amount = token_amount;
+        account.dca_enabled = true;
+        
+        msg!(
+            "DCA set: interval={}, token={}, amount={}",
+            interval,
+            token_address,
+            token_amount
+        );
+        Ok(())
+    }
+
+    // Mock买入函数
+    pub fn mock_buy(
+        ctx: Context<Operate>,
+        token_address: Pubkey,
+        token_amount: u64,
+    ) -> Result<()> {
+        let account = &mut ctx.accounts.account;
+        
+        // 验证定投是否启用
+        require!(account.dca_enabled, ErrorCode::DCANotEnabled);
+        // 验证token地址是否匹配
+        require!(account.token_address == token_address, ErrorCode::TokenMismatch);
+        
+        msg!(
+            "Mock buying {} tokens from contract {}",
+            token_amount,
+            token_address
+        );
+        
+        Ok(())
+    }
 }
 
 #[account]
@@ -84,6 +134,11 @@ pub struct AccountState {
     pub trigger_health_factor: u64,
     pub target_health_factor: u64,
     pub automation_enabled: bool,
+    // 新增定投相关字段
+    pub dca_interval: u64,        // 定投周期(秒)
+    pub token_address: Pubkey,    // token合约地址
+    pub token_amount: u64,        // 定投数量
+    pub dca_enabled: bool,        // 定投是否启用
 }
 
 impl AccountState {
@@ -103,7 +158,7 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = user,
-        space = 8 + 8 + 8 + 8 + 1 // discriminator + health_factor + trigger + target + bool
+        space = 8 + 8 + 8 + 8 + 1 + 8 + 32 + 8 + 1 // discriminator + health_factor + trigger + target + bool + dca_interval + token_address + token_amount + dca_enabled
     )]
     pub account: Account<'info, AccountState>,
     #[account(mut)]
@@ -126,4 +181,12 @@ pub enum ErrorCode {
     AutomationNotEnabled,
     #[msg("Health factor is above trigger threshold")]
     NoTriggerNeeded,
+    #[msg("Invalid DCA interval")]
+    InvalidInterval,
+    #[msg("Invalid token amount")]
+    InvalidAmount,
+    #[msg("DCA is not enabled")]
+    DCANotEnabled,
+    #[msg("Token address mismatch")]
+    TokenMismatch,
 }
